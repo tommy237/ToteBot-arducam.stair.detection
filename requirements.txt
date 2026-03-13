@@ -1,1 +1,6 @@
+# canny_camera.py
 opencv-python
+
+# automaton.py
+smbus2
+mpu6050-raspberrypi
