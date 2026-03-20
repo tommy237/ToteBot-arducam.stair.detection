@@ -1,24 +1,33 @@
 import cv2 #install opencv-python
 import numpy as np
 import threading as thr
+from line_data import Line,Point
+from typing import Any,List
+
 
 #// ============ SETTINGS ============ //#
-camName="Stair Detection Camera"
-detTxt="stairs omg!1!"
-detFont=cv2.FONT_HERSHEY_SIMPLEX
-detClr=(0,0,255) #// B, G, R
-ndetClr=(170,255,0)
-quitKeyCode='q'
+camName:str = "Stair Detection Camera"
+
+detTxt:str =     "stairs omg!1!"
+detFont:int =    cv2.FONT_HERSHEY_SIMPLEX
+detClr =         (0,0,255) #/ B, G, R
+ndetClr =        (170,255,0)
+txtPadding:int = 10
+
+quitKeyCode:chr = 'q'
+
 
 #// ============ AUTO VARS ============ //#
 #// do not touch these pls, 
 # or you'll ruin the program
-cursorPos=(0,0)  #/ Automatic Point
-sigma=.33        #/ Constant
+cursorPos = (0,0)  #/ Automatic Point
+sigma=      .25    #/ Constant
+horizDeg  = 5
+
 
 # _____________________________________________________________________
 #// DEFINITION: Callback event for mouse movement in the cv2 window. //
-def mousePos(event:int,x:int,y:int,flags:int,param):
+def mousePos(event:int,x:int,y:int,flags:int,param:Any|None):
     global cursorPos
     if (event==cv2.EVENT_MOUSEMOVE):
         cursorPos=(x,y)
@@ -26,6 +35,7 @@ def mousePos(event:int,x:int,y:int,flags:int,param):
 def mousePos_putText(imgP:cv2.typing.MatLike,textP:str,pos:tuple[int,int]):
     cv2.putText(img=imgP,text=textP,org=pos,fontFace=cv2.FONT_HERSHEY_SIMPLEX,
                 fontScale=0.5,color=(255,255,255),thickness=1,lineType=cv2.LINE_8)
+
 
 # _______________________________________________________________________
 #// DEFINITION: Loop module for the camera's active detection program. //
@@ -67,72 +77,109 @@ def cameraMod():
         #               _________________________               #
         #_______________| H O U G H   L I N E S |_______________#
         #|_____________________________________________________|#
+        #           rho:  distance resolution in pixels.
+        #         theta:  angle resolution in radians.
+        #     threshold:  amount of randomized points needed to form a line.
+        # minlineLength:  amount of pixels needed to validate the line.
+        #    maxLineGap:  the allowed gap between points in the same line.
         houghLines=cv2.HoughLinesP(image=cannyEdges,rho=1,theta=np.pi/180,
-                                   threshold=100,minLineLength=100,maxLineGap=10)
-        horizCount=0 #// How many horizontal lines have we counted?
-        lines={}
+                                   threshold=100,minLineLength=100,maxLineGap=20)
+        horizCount:int=0 #// How many horizontal lines have we counted?
+        lines:dict[int,Line]={}
+        detLines:List[Line]=[]
         if (houghLines is not None):
             for hLine in houghLines:
                 x1,y1,x2,y2=hLine[0] #// Slope points
-                rise=y2-y1           #// Distance in height
-                run=x2-x1            #// Distance in length
-                angle=np.abs(np.degrees(np.arctan2(rise,run)))
+                rise:float=y2-y1     #// Distance in height
+                run:float=x2-x1      #// Distance in length
+                angle:float=np.abs(np.degrees(np.arctan2(rise,run)))
                 #// Are we sure these lines are close to purely horizontal?
-                if (angle<5 or abs(angle-180)<5):
+                if (angle<horizDeg or abs(angle-180)<horizDeg):
                     #// Offsets the line y-positions to align with detected edges.
                     #// Because camera should only capture bottom 60%, an offset must be added.
-                    y1Offset=y1+startHeight
-                    y2Offset=y2+startHeight
-                    length=np.sqrt(((x2-x1)**2)+((y2Offset-y1Offset)**2))
-                    avgY=(y1Offset+y2Offset)//2
-                    lines[horizCount]={
-                        'Point1':(x1,y1Offset),
-                        'Point2':(x2,y2Offset),
-                        'Midpoint':avgY,
-                        'Length':length
-                    }
+                    y1Offset:int=y1+startHeight
+                    y2Offset:int=y2+startHeight
+                    lines[horizCount]=Line(
+                        pt1=Point(x=x1,y=y1Offset),
+                        pt2=Point(x=x2,y=y2Offset),
+                    )
                     horizCount+=1
-                    color=detClr if True else ndetClr
-                    cv2.line(img=frame,pt1=(x1,y1Offset),
-                             pt2=(x2,y2Offset),color=color,
-                             thickness=3)
+        
+        upstairPoints:int=0
+        downstairPoints:int=0
 
-        if (len(lines)>=3):
-            keys=list(lines.keys())
-            sortedIndices=sorted(keys,
-                                 key=lambda k:lines[k]['Midpoint'],
+        #// If there are more than 2 lines in general.
+        if (len(lines)>2):
+            #// Sorted array of lines that reach the closest to top of the viewport.
+            sortedIndices=sorted(list(lines.keys()),
+                                 key=lambda k:lines[k].getMidpoint(),
                                  reverse=True)
-            upPoints=0
-            downPoints=0
             gaps=[]
             for i in range(len(sortedIndices)-1):
-                currLn=lines[sortedIndices[i]]
-                nxtLn=lines[sortedIndices[i+1]]
-                gap=(currLn['Midpoint']-nxtLn['Midpoint'])
-                lengthDiff=(currLn['Length']-nxtLn['Length'])
+
+                # ___________ GAP-CHECKING ___________ #
+                currentLine:Line=lines[sortedIndices[i]]
+                nxtLine:Line=lines[sortedIndices[i+1]]
+                cLm=currentLine.getMidpoint()
+                nLm=nxtLine.getMidpoint()
+
+                gapDist:int=np.sqrt((nLm.x-cLm.x)**2+(nLm.y-cLm.y)**2)  #// distance between both lines using the midpoint.
+                lenDiff:int=nxtLine.getLength()-currentLine.getLength() #// difference between the line lengths (signs determines stair direction)
                 gaps.append({
-                    'Distance':gap,
-                    'Difference':lengthDiff,
-                    'Lines':(currLn,nxtLn)
-                    })
-                if (gap>10):
-                    if (lengthDiff>5): upPoints+=1
-                    elif (lengthDiff<-5): downPoints+=1
-            isStairs=upPoints>2 or downPoints>2
-            if isStairs:
-                (txtWidth,txtHeight),baseline=cv2.getTextSize(text=detTxt,
-                                                      fontFace=detFont,
-                                                      fontScale=1,thickness=3)
-                txtPosX,txtPosY=frameWidth-txtWidth-15,frameHeight-15
-                boxMin=(txtPosX-10,txtPosY-txtHeight-10)         #// Upper left point
-                boxMax=(txtPosX+txtWidth+10,txtPosY+baseline+10) #// Bottom right point
-                cv2.rectangle(img=frame,pt1=boxMin,
-                            pt2=boxMax,color=(0,0,0),
-                            thickness=-1)
-                cv2.putText(img=frame,text=detTxt,
-                            org=(txtPosX,txtPosY),
-                            fontFace=detFont,fontScale=1,
-                            color=detClr,thickness=3)
+                    'Distance':gapDist,
+                    'LengthGap':lenDiff,
+                    'Lines':(currentLine,nxtLine)
+                })
+
+                #// This helps determine if gaps geometrically increase/decrease.
+                if (gapDist>10):
+                    if (lenDiff>5):
+                        upstairPoints+=1
+                    elif (lenDiff<-5):
+                        downstairPoints+=1
+                    if (abs(lenDiff)>5):
+                        if currentLine not in detLines:
+                            detLines.append(currentLine)
+                        detLines.append(nxtLine)
+
+        #// A threshold for good stairs require 
+        # more than 2 horizontal lines detecting 
+        # stair nosings.
+        isUpstairs:bool=(upstairPoints>2)
+        isDownstairs:bool=(downstairPoints>2)
+        isStairs:bool=(isUpstairs or isDownstairs)
+
+        #// If there's potential upstairs or downstairs.
+        if isStairs:
+
+            # ___________ DETECTED LINES DISPLAYING ___________ #
+            for line in lines.values():
+                isDetected=line in detLines #// If that line is detected for stairs.
+                color=detClr if isDetected else ndetClr
+                point1=line.Point1.toTuple()
+                point2=line.Point2.toTuple()
+                cv2.line(img=frame,pt1=point1,
+                         pt2=point2,color=color,
+                         thickness=2)
+            
+            # ___________ TEXT-BOX LABELING ___________ #
+            (txtWidth,txtHeight),baseline=cv2.getTextSize(text=detTxt,
+                                                          fontFace=detFont,
+                                                          fontScale=1,thickness=3)
+            txtPosX,txtPosY=(frameWidth-txtWidth)-15,(frameHeight)-15
+            boxMin=((txtPosX)-txtPadding,(txtPosY-txtHeight)-txtPadding)         #// Upper left point
+            boxMax=((txtPosX+txtWidth)+txtPadding,(txtPosY+baseline)+txtPadding) #// Bottom right point
+            cv2.rectangle(img=frame,pt1=boxMin,pt2=boxMax,color=(0,0,0),thickness=-1)
+            cv2.putText(img=frame,text=detTxt,org=(txtPosX,txtPosY),fontFace=detFont,
+                        fontScale=1,color=detClr,thickness=3)
+            
+        else:
+
+            # ___________ LINES DISPLAYING ___________ #
+            for line in lines.values():
+                cv2.line(img=frame,pt1=line.Point1.toTuple(),
+                         pt2=line.Point2.toTuple(),color=ndetClr,
+                         thickness=3)
 
         # ___________ MOUSE LABELING ___________ #
         localX,localY=cursorPos[0],cursorPos[1]
