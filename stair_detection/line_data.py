@@ -37,16 +37,11 @@ class Line:
         self.Point2:Point=pt2
         self.__Midpoint:Point=(pt2-pt1)//2
         self.__Length:int|float=np.sqrt((pt2.x-pt1.x**2)+((pt2.y-pt1.y)**2))
-        Line.lines.append(self)
 
     def getMidpoint(self):
         return self.__Midpoint
     
     def getLength(self):
         return self.__Length
-    
-    @classmethod
-    def clearAll(cls):
-        cls.lines.clear()
 
     

@@ -47,7 +47,7 @@ def cameraMod():
     cv2.setMouseCallback(
         window_name=camName,
         on_mouse=mousePos)
-    camera=cv2.VideoCapture(index=1,apiPreference=cv2.CAP_DSHOW)
+    camera=cv2.VideoCapture(index=0,apiPreference=cv2.CAP_DSHOW)
     if (not camera.isOpened()):
         exit()
     while True:
@@ -61,13 +61,20 @@ def cameraMod():
         startHeight=int(frameHeight*0.4)       #// Frame cropping (new y-origin)
         roi=frame[startHeight:,:]              #// Region Of Interest
         grayFrame=cv2.cvtColor(src=roi,code=cv2.COLOR_BGR2GRAY)
+
+        #               _________________________               #
+        #_______________| S O B E L   O P E R S |_______________#
+        #|_____________________________________________________|#
         blurredFrame=cv2.GaussianBlur(src=grayFrame,ksize=(5,5),sigmaX=0)
+        sobelY=cv2.Sobel(src=blurredFrame,ddepth=cv2.CV_64F,dx=0,dy=1,ksize=3)
+        sobelYabsolute=np.absolute(sobelY)
+        sobel8u=np.uint8(sobelYabsolute)
         
         #               _________________________               #
         #_______________| C A N N Y   E D G E S |_______________#
         #|_____________________________________________________|#
         #// Used to avoid lighting issues when captured in a dark/light room.
-        median=np.median(blurredFrame)
+        median=np.median(sobel8u)
         lowThresh=int(max(0,(1.0-sigma)*median))
         highThresh=int(min(255,(1.0+sigma)*median))
         cannyEdges=cv2.Canny(image=blurredFrame,
@@ -85,7 +92,7 @@ def cameraMod():
         houghLines=cv2.HoughLinesP(image=cannyEdges,rho=1,theta=np.pi/180,
                                    threshold=100,minLineLength=100,maxLineGap=20)
         horizCount:int=0 #// How many horizontal lines have we counted?
-        lines:dict[int,Line]={}
+        lines:List[Line]=[]
         detLines:List[Line]=[]
         if (houghLines is not None):
             for hLine in houghLines:
@@ -99,10 +106,10 @@ def cameraMod():
                     #// Because camera should only capture bottom 60%, an offset must be added.
                     y1Offset:int=y1+startHeight
                     y2Offset:int=y2+startHeight
-                    lines[horizCount]=Line(
+                    lines.append(Line(
                         pt1=Point(x=x1,y=y1Offset),
                         pt2=Point(x=x2,y=y2Offset),
-                    )
+                    ))
                     horizCount+=1
         
         upstairPoints:int=0
@@ -111,36 +118,41 @@ def cameraMod():
         #// If there are more than 2 lines in general.
         if (len(lines)>2):
             #// Sorted array of lines that reach the closest to top of the viewport.
-            sortedIndices=sorted(list(lines.keys()),
-                                 key=lambda k:lines[k].getMidpoint(),
-                                 reverse=True)
-            gaps=[]
-            for i in range(len(sortedIndices)-1):
+            lines.sort(key=lambda x:x.getMidpoint(),reverse=True)
+            for i in range(len(lines)):
 
                 # ___________ GAP-CHECKING ___________ #
-                currentLine:Line=lines[sortedIndices[i]]
-                nxtLine:Line=lines[sortedIndices[i+1]]
+                currentLine:Line=lines[i-1]
+                nxtLine:Line=lines[i]
                 cLm=currentLine.getMidpoint()
                 nLm=nxtLine.getMidpoint()
 
-                gapDist:int=np.sqrt((nLm.x-cLm.x)**2+(nLm.y-cLm.y)**2)  #// distance between both lines using the midpoint.
-                lenDiff:int=nxtLine.getLength()-currentLine.getLength() #// difference between the line lengths (signs determines stair direction)
-                gaps.append({
-                    'Distance':gapDist,
-                    'LengthGap':lenDiff,
-                    'Lines':(currentLine,nxtLine)
-                })
+                #// distance between both lines using the midpoint.
+                gapDist:int=np.sqrt((nLm.x-cLm.x)**2+(nLm.y-cLm.y)**2)  
+                #// difference between the line lengths (signs determines stair direction).
+                lenDiff:int=nxtLine.getLength()-currentLine.getLength()
 
-                #// This helps determine if gaps geometrically increase/decrease.
-                if (gapDist>10):
-                    if (lenDiff>5):
-                        upstairPoints+=1
-                    elif (lenDiff<-5):
-                        downstairPoints+=1
-                    if (abs(lenDiff)>5):
-                        if currentLine not in detLines:
-                            detLines.append(currentLine)
-                        detLines.append(nxtLine)
+                #// TODO: Expand this section
+                #// This helps determine if gaps 
+                # geometrically increase/decrease.
+
+                # if (gapDist<lastGap*1.1):
+                #     if (lenDiff>5):
+                #         upstairPoints+=1
+                #     elif (lenDiff<-5):
+                #         downstairPoints+=1
+                #     if (abs(lenDiff)>5):
+                #         if currentLine not in detLines:
+                #             detLines.append(currentLine)
+                #         detLines.append(nxtLine)
+
+
+
+                # lastGap=gapDist
+                # lastLen=lenDiff
+
+
+                #// End TODO
 
         #// A threshold for good stairs require 
         # more than 2 horizontal lines detecting 
@@ -153,7 +165,7 @@ def cameraMod():
         if isStairs:
 
             # ___________ DETECTED LINES DISPLAYING ___________ #
-            for line in lines.values():
+            for line in lines:
                 isDetected=line in detLines #// If that line is detected for stairs.
                 color=detClr if isDetected else ndetClr
                 point1=line.Point1.toTuple()
@@ -176,7 +188,7 @@ def cameraMod():
         else:
 
             # ___________ LINES DISPLAYING ___________ #
-            for line in lines.values():
+            for line in lines:
                 cv2.line(img=frame,pt1=line.Point1.toTuple(),
                          pt2=line.Point2.toTuple(),color=ndetClr,
                          thickness=3)
