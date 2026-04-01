@@ -21,7 +21,7 @@ quitKeyCode:chr = 'q'
 #// do not touch these pls, 
 # or you'll ruin the program
 cursorPos = (0,0)  #/ Automatic Point
-sigma=      .25    #/ Constant
+sigma =     .25    #/ Constant
 horizDeg  = 5
 
 
