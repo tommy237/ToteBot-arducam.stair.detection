@@ -66,15 +66,15 @@ def cameraMod():
         #_______________| S O B E L   O P E R S |_______________#
         #|_____________________________________________________|#
         blurredFrame=cv2.GaussianBlur(src=grayFrame,ksize=(5,5),sigmaX=0)
-        sobelY=cv2.Sobel(src=blurredFrame,ddepth=cv2.CV_64F,dx=0,dy=1,ksize=3)
-        sobelYabsolute=np.absolute(sobelY)
-        sobel8u=np.uint8(sobelYabsolute)
+        # sobelY=cv2.Sobel(src=blurredFrame,ddepth=cv2.CV_64F,dx=0,dy=1,ksize=3)
+        # sobelYabsolute=np.absolute(sobelY)
+        # sobel8u=np.uint8(sobelYabsolute)
         
         #               _________________________               #
         #_______________| C A N N Y   E D G E S |_______________#
         #|_____________________________________________________|#
         #// Used to avoid lighting issues when captured in a dark/light room.
-        median=np.median(sobel8u)
+        median=np.median(blurredFrame)
         lowThresh=int(max(0,(1.0-sigma)*median))
         highThresh=int(min(255,(1.0+sigma)*median))
         cannyEdges=cv2.Canny(image=blurredFrame,
